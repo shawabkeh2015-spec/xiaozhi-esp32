@@ -10,11 +10,12 @@
 #include <esp_lcd_panel_vendor.h>
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
+#include <driver/gpio.h>
 #include <wifi_station.h>
 
 #define TAG "QuandongS3DevBoard"
 
-// ILI9341 厂家自定义初始化序列
+// ILI9341 manufacturer-specific initialization sequence
 static const ili9341_lcd_init_cmd_t vendor_specific_init[] = {
     {0xCF, (uint8_t []){0x00, 0xC1, 0x30}, 3, 0},
     {0xED, (uint8_t []){0x64, 0x03, 0x12, 0x81}, 4, 0},
@@ -43,8 +44,28 @@ static const ili9341_lcd_init_cmd_t vendor_specific_init[] = {
 class QuandongS3DevBoard : public WifiBoard {
 private:
     i2c_master_bus_handle_t codec_i2c_bus_;
+
     Button boot_button_;
+    Button walkie_button_;
+
     LcdDisplay* display_ = nullptr;
+
+    // GPIO3 acts as the LOW side of the external PTT button
+    void InitializeWalkieButtonGround() {
+        gpio_config_t io_conf = {};
+
+        io_conf.pin_bit_mask = (1ULL << WALKIE_BUTTON_GND_GPIO);
+        io_conf.mode = GPIO_MODE_OUTPUT;
+        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+
+        ESP_ERROR_CHECK(gpio_config(&io_conf));
+        ESP_ERROR_CHECK(gpio_set_level(WALKIE_BUTTON_GND_GPIO, 0));
+
+        ESP_LOGI(TAG, "PTT ground GPIO%d initialized LOW",
+                 WALKIE_BUTTON_GND_GPIO);
+    }
 
     void InitializeI2c() {
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -85,42 +106,46 @@ private:
         );
     }
 
-    // 板上音频功放使能引脚，需置为低电平
+    // Enable onboard audio amplifier
     void InitializeAudioPaEnable() {
         gpio_config_t io_conf = {};
 
-        io_conf.pin_bit_mask =
-            (1ULL << AUDIO_PA_ENABLE_PIN);
-
+        io_conf.pin_bit_mask = (1ULL << AUDIO_PA_ENABLE_PIN);
         io_conf.mode = GPIO_MODE_OUTPUT;
         io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
         io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
         io_conf.intr_type = GPIO_INTR_DISABLE;
 
-        gpio_config(&io_conf);
-
-        gpio_set_level(
-            AUDIO_PA_ENABLE_PIN,
-            0
-        );
+        ESP_ERROR_CHECK(gpio_config(&io_conf));
+        ESP_ERROR_CHECK(gpio_set_level(AUDIO_PA_ENABLE_PIN, 0));
     }
 
-    // Push-to-talk:
-    // Hold BOOT = listen
-    // Release BOOT = stop listening
     void InitializeButtons() {
+        // Original onboard BOOT button
+        boot_button_.OnClick([this]() {
+            auto& app = Application::GetInstance();
 
-        boot_button_.OnPressDown([this]() {
+            if (app.GetDeviceState() == kDeviceStateStarting) {
+                EnterWifiConfigMode();
+                return;
+            }
+
+            app.ToggleChatState();
+        });
+
+        // External Walkie-Talkie Push-To-Talk button
+        walkie_button_.OnPressDown([]() {
+            ESP_LOGI(TAG, "PTT pressed - StartListening");
             Application::GetInstance().StartListening();
         });
 
-        boot_button_.OnPressUp([this]() {
+        walkie_button_.OnPressUp([]() {
+            ESP_LOGI(TAG, "PTT released - StopListening");
             Application::GetInstance().StopListening();
         });
     }
 
     void InitializeIli9341Display() {
-
         esp_lcd_panel_io_handle_t panel_io = nullptr;
         esp_lcd_panel_handle_t panel = nullptr;
 
@@ -128,17 +153,10 @@ private:
 
         esp_lcd_panel_io_spi_config_t io_config = {};
 
-        io_config.cs_gpio_num =
-            DISPLAY_SPI_CS_PIN;
-
-        io_config.dc_gpio_num =
-            DISPLAY_DC_PIN;
-
+        io_config.cs_gpio_num = DISPLAY_SPI_CS_PIN;
+        io_config.dc_gpio_num = DISPLAY_DC_PIN;
         io_config.spi_mode = 0;
-
-        io_config.pclk_hz =
-            40 * 1000 * 1000;
-
+        io_config.pclk_hz = 40 * 1000 * 1000;
         io_config.trans_queue_depth = 10;
         io_config.lcd_cmd_bits = 8;
         io_config.lcd_param_bits = 8;
@@ -154,9 +172,7 @@ private:
         ESP_LOGD(TAG, "Install LCD driver");
 
         const ili9341_vendor_config_t vendor_config = {
-            .init_cmds =
-                &vendor_specific_init[0],
-
+            .init_cmds = &vendor_specific_init[0],
             .init_cmds_size =
                 sizeof(vendor_specific_init) /
                 sizeof(ili9341_lcd_init_cmd_t),
@@ -164,18 +180,11 @@ private:
 
         esp_lcd_panel_dev_config_t panel_config = {};
 
-        panel_config.reset_gpio_num =
-            GPIO_NUM_NC;
-
+        panel_config.reset_gpio_num = GPIO_NUM_NC;
         panel_config.flags.reset_active_high = 1;
-
-        panel_config.rgb_ele_order =
-            LCD_RGB_ELEMENT_ORDER_RGB;
-
+        panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
         panel_config.bits_per_pixel = 16;
-
-        panel_config.vendor_config =
-            (void *)&vendor_config;
+        panel_config.vendor_config = (void *)&vendor_config;
 
         ESP_ERROR_CHECK(
             esp_lcd_new_panel_ili9341(
@@ -187,11 +196,7 @@ private:
 
         esp_lcd_panel_reset(panel);
         esp_lcd_panel_init(panel);
-
-        esp_lcd_panel_invert_color(
-            panel,
-            true
-        );
+        esp_lcd_panel_invert_color(panel, true);
 
         esp_lcd_panel_swap_xy(
             panel,
@@ -204,10 +209,7 @@ private:
             DISPLAY_MIRROR_Y
         );
 
-        esp_lcd_panel_disp_on_off(
-            panel,
-            true
-        );
+        esp_lcd_panel_disp_on_off(panel, true);
 
         display_ = new SpiLcdDisplay(
             panel_io,
@@ -223,51 +225,35 @@ private:
     }
 
 public:
-
     QuandongS3DevBoard()
-        : boot_button_(BOOT_BUTTON_GPIO) {
+        : boot_button_(BOOT_BUTTON_GPIO),
+          walkie_button_(WALKIE_BUTTON_GPIO) {
+
+        InitializeWalkieButtonGround();
 
         InitializeI2c();
-
         InitializeSpi();
-
         InitializeAudioPaEnable();
-
         InitializeIli9341Display();
-
         InitializeButtons();
 
         GetBacklight()->SetBrightness(100);
     }
 
     virtual AudioCodec* GetAudioCodec() override {
-
         static Es8311AudioCodec audio_codec(
-
             codec_i2c_bus_,
-
             I2C_NUM_0,
-
             AUDIO_INPUT_SAMPLE_RATE,
-
             AUDIO_OUTPUT_SAMPLE_RATE,
-
             AUDIO_I2S_GPIO_MCLK,
-
             AUDIO_I2S_GPIO_BCLK,
-
             AUDIO_I2S_GPIO_WS,
-
             AUDIO_I2S_GPIO_DOUT,
-
             AUDIO_I2S_GPIO_DIN,
-
             AUDIO_CODEC_PA_PIN,
-
             AUDIO_CODEC_ES8311_ADDR,
-
             true,
-
             true
         );
 
@@ -279,7 +265,6 @@ public:
     }
 
     virtual Backlight* GetBacklight() override {
-
         static PwmBacklight backlight(
             DISPLAY_BACKLIGHT_PIN,
             DISPLAY_BACKLIGHT_OUTPUT_INVERT
