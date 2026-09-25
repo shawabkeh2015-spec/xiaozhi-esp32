@@ -1412,6 +1412,8 @@ void Application::SetAecMode(AecMode mode) {
     });
 }
 
+void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
+
 void Application::ResetProtocol() {
     Schedule([this]() {
         if (GetDeviceState() == kDeviceStateNotifying) {
