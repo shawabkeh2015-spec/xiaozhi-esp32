@@ -11,6 +11,7 @@
 #include "system_info.h"
 #include "text_glyph_payload.h"
 #include "websocket_protocol.h"
+#include "zello_protocol.h"
 
 #include <driver/gpio.h>
 #include <esp_log.h>
@@ -535,6 +536,16 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
+#ifdef ZELLO_USERNAME
+    ESP_LOGI(TAG, "Initializing Zello protocol");
+
+    protocol_ = std::make_unique<ZelloProtocol>(
+        ZELLO_USERNAME,
+        ZELLO_PASSWORD,
+        ZELLO_AUTH_TOKEN,
+        ZELLO_CHANNEL
+    );
+#else
     if (ota_->HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
     } else if (ota_->HasWebsocketConfig()) {
@@ -543,6 +554,7 @@ void Application::InitializeProtocol() {
         ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
         protocol_ = std::make_unique<MqttProtocol>();
     }
+#endif
 
     protocol_->OnConnected([this]() { DismissAlert(); });
 
@@ -776,7 +788,39 @@ void Application::ToggleChatState() { xEventGroupSetBits(event_group_, MAIN_EVEN
 void Application::StartListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_START_LISTENING); }
 
 void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING); }
+void Application::StartZelloPtt() {
+    Schedule([this]() {
+        auto* zello = dynamic_cast<ZelloProtocol*>(protocol_.get());
 
+        if (zello == nullptr) {
+            ESP_LOGE(TAG, "Zello protocol is not active");
+            return;
+        }
+
+        ESP_LOGI(TAG, "Zello PTT pressed");
+        StartListening();
+
+        if (!zello->StartStream()) {
+            ESP_LOGW(TAG, "Unable to start Zello stream");
+        }
+    });
+}
+
+void Application::StopZelloPtt() {
+    Schedule([this]() {
+        auto* zello = dynamic_cast<ZelloProtocol*>(protocol_.get());
+
+        if (zello == nullptr) {
+            ESP_LOGE(TAG, "Zello protocol is not active");
+            return;
+        }
+
+        ESP_LOGI(TAG, "Zello PTT released");
+
+        zello->StopStream();
+        StopListening();
+    });
+}
 void Application::HandleToggleChatEvent() {
     auto state = GetDeviceState();
 

@@ -17,6 +17,12 @@ jobs:
     container:
       image: espressif/idf:v6.1
 
+    env:
+      ZELLO_USERNAME: ${{ secrets.ZELLO_USERNAME }}
+      ZELLO_PASSWORD: ${{ secrets.ZELLO_PASSWORD }}
+      ZELLO_AUTH_TOKEN: ${{ secrets.ZELLO_AUTH_TOKEN }}
+      ZELLO_CHANNEL: ${{ secrets.ZELLO_CHANNEL }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
