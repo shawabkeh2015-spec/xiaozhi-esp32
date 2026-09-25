@@ -12,6 +12,9 @@
 #include "text_glyph_payload.h"
 #include "websocket_protocol.h"
 #include "zello_protocol.h"
+#ifdef ZELLO_CREDENTIALS_AVAILABLE
+#include "zello_credentials.h"
+#endif
 
 #include <driver/gpio.h>
 #include <esp_log.h>
@@ -340,7 +343,7 @@ void Application::HandleActivationDoneEvent() {
     has_server_time_ = ota_->HasServerTime();
 
     // Protocol start may have already raised MAIN_EVENT_ERROR. Do not replace
-    // that alert with the "ready" UI/sound — the main loop can process both
+    // that alert with the "ready" UI/sound ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the main loop can process both
     // events back-to-back because the activation task is lower priority.
     const bool has_error = !last_error_message_.empty();
     if (!has_error) {
@@ -536,7 +539,7 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
-#ifdef ZELLO_USERNAME
+#ifdef ZELLO_CREDENTIALS_AVAILABLE
     ESP_LOGI(TAG, "Initializing Zello protocol");
 
     protocol_ = std::make_unique<ZelloProtocol>(
@@ -790,7 +793,7 @@ void Application::StartListening() { xEventGroupSetBits(event_group_, MAIN_EVENT
 void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING); }
 void Application::StartZelloPtt() {
     Schedule([this]() {
-        auto* zello = dynamic_cast<ZelloProtocol*>(protocol_.get());
+        auto* zello = static_cast<ZelloProtocol*>(protocol_.get());
 
         if (zello == nullptr) {
             ESP_LOGE(TAG, "Zello protocol is not active");
@@ -808,7 +811,7 @@ void Application::StartZelloPtt() {
 
 void Application::StopZelloPtt() {
     Schedule([this]() {
-        auto* zello = dynamic_cast<ZelloProtocol*>(protocol_.get());
+        auto* zello = static_cast<ZelloProtocol*>(protocol_.get());
 
         if (zello == nullptr) {
             ESP_LOGE(TAG, "Zello protocol is not active");
