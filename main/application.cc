@@ -343,7 +343,7 @@ void Application::HandleActivationDoneEvent() {
     has_server_time_ = ota_->HasServerTime();
 
     // Protocol start may have already raised MAIN_EVENT_ERROR. Do not replace
-    // that alert with the "ready" UI/sound ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the main loop can process both
+    // that alert with the "ready" UI/sound ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the main loop can process both
     // events back-to-back because the activation task is lower priority.
     const bool has_error = !last_error_message_.empty();
     if (!has_error) {
@@ -370,6 +370,13 @@ void Application::ActivationTask() {
     // Create OTA object for activation process
     ota_ = std::make_unique<Ota>();
 
+#ifdef ZELLO_CREDENTIALS_AVAILABLE
+    // Zello devices don't use the xiaozhi OTA/activation server, so skip
+    // straight to protocol initialization instead of blocking on OTA
+    // checks that will never succeed for this build.
+    ESP_LOGI(TAG, "Zello build detected - skipping OTA/activation checks");
+    InitializeProtocol();
+#else
     // Check for new assets version
     CheckAssetsVersion();
 
@@ -378,6 +385,7 @@ void Application::ActivationTask() {
 
     // Initialize the protocol
     InitializeProtocol();
+#endif
 
     // Signal completion to main loop
     xEventGroupSetBits(event_group_, MAIN_EVENT_ACTIVATION_DONE);
@@ -1404,18 +1412,13 @@ void Application::SetAecMode(AecMode mode) {
     });
 }
 
-void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
-
 void Application::ResetProtocol() {
     Schedule([this]() {
         if (GetDeviceState() == kDeviceStateNotifying) {
             StopNotification();
         }
-        // Close audio channel if opened
-        if (protocol_ && protocol_->IsAudioChannelOpened()) {
-            protocol_->CloseAudioChannel();
-        }
         // Reset protocol
+        ESP_LOGW(TAG, "ResetProtocol() called - protocol_ was %s", protocol_ ? "valid" : "already null");
         protocol_.reset();
     });
 }
