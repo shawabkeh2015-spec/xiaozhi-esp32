@@ -59,9 +59,14 @@ bool ZelloProtocol::OpenAudioChannel() {
 
         logged_in_ = false;
         channel_online_ = false;
+
         stream_active_ = false;
         stream_start_pending_ = false;
         stream_id_ = 0;
+
+        incoming_stream_id_ = 0;
+        incoming_sample_rate_ = 16000;
+        incoming_frame_duration_ = 60;
 
         if (on_audio_channel_closed_) {
             on_audio_channel_closed_();
@@ -82,8 +87,18 @@ bool ZelloProtocol::OpenAudioChannel() {
 
     const int seq = sequence_++;
 
-    cJSON_AddStringToObject(root, "command", "logon");
-    cJSON_AddNumberToObject(root, "seq", seq);
+    cJSON_AddStringToObject(
+        root,
+        "command",
+        "logon"
+    );
+
+    cJSON_AddNumberToObject(
+        root,
+        "seq",
+        seq
+    );
+
     cJSON_AddStringToObject(
         root,
         "auth_token",
@@ -102,24 +117,32 @@ bool ZelloProtocol::OpenAudioChannel() {
         password_.c_str()
     );
 
-    cJSON* channels = cJSON_AddArrayToObject(
-        root,
-        "channels"
-    );
+    cJSON* channels =
+        cJSON_AddArrayToObject(
+            root,
+            "channels"
+        );
 
     cJSON_AddItemToArray(
         channels,
-        cJSON_CreateString(channel_.c_str())
+        cJSON_CreateString(
+            channel_.c_str()
+        )
     );
 
-    char* json = cJSON_PrintUnformatted(root);
+    char* json =
+        cJSON_PrintUnformatted(root);
 
-    bool result = websocket_->Send(json);
+    bool result =
+        websocket_->Send(json);
 
     cJSON_free(json);
     cJSON_Delete(root);
 
-    ESP_LOGI(TAG, "Zello logon sent");
+    ESP_LOGI(
+        TAG,
+        "Zello logon sent"
+    );
 
     return result;
 }
@@ -129,17 +152,28 @@ bool ZelloProtocol::SendText(
 ) {
     if (!websocket_ ||
         !websocket_->IsConnected()) {
+
         return false;
     }
 
     return websocket_->Send(text);
 }
 
-void ZelloProtocol::SendStartListening(ListeningMode mode) {
+void ZelloProtocol::SendStartListening(
+    ListeningMode mode
+) {
+    /*
+     * Xiaozhi-specific command.
+     * Zello does not use it.
+     */
     (void)mode;
 }
 
 void ZelloProtocol::SendStopListening() {
+    /*
+     * Xiaozhi-specific command.
+     * Zello does not use it.
+     */
 }
 
 bool ZelloProtocol::StartStream() {
@@ -156,9 +190,11 @@ bool ZelloProtocol::StartStream() {
         return false;
     }
 
-    cJSON* root = cJSON_CreateObject();
+    cJSON* root =
+        cJSON_CreateObject();
 
-    const int seq = sequence_++;
+    const int seq =
+        sequence_++;
 
     cJSON_AddStringToObject(
         root,
@@ -191,8 +227,9 @@ bool ZelloProtocol::StartStream() {
     );
 
     /*
+     * Opus:
      * 16000 Hz
-     * 1 Opus frame per packet
+     * 1 frame per packet
      * 60 ms frame
      */
     cJSON_AddStringToObject(
@@ -207,9 +244,11 @@ bool ZelloProtocol::StartStream() {
         60
     );
 
-    char* json = cJSON_PrintUnformatted(root);
+    char* json =
+        cJSON_PrintUnformatted(root);
 
-    bool result = websocket_->Send(json);
+    bool result =
+        websocket_->Send(json);
 
     cJSON_free(json);
     cJSON_Delete(root);
@@ -242,9 +281,11 @@ bool ZelloProtocol::SendAudio(
      * Zello binary audio packet:
      *
      * byte 0      = 0x01
-     * bytes 1-4   = stream_id, network byte order
-     * bytes 5-8   = packet_id, network byte order
+     * bytes 1-4   = stream_id
+     * bytes 5-8   = packet_id
      * bytes 9...  = Opus payload
+     *
+     * Integer fields use network byte order.
      */
 
     std::string output;
@@ -255,7 +296,8 @@ bool ZelloProtocol::SendAudio(
 
     output[0] = 0x01;
 
-    uint32_t sid = htonl(stream_id_);
+    uint32_t sid =
+        htonl(stream_id_);
 
     memcpy(
         &output[1],
@@ -264,8 +306,8 @@ bool ZelloProtocol::SendAudio(
     );
 
     /*
-     * Zello ignores packet_id for
-     * outgoing audio.
+     * Zello ignores packet_id
+     * for outgoing audio.
      */
     uint32_t packet_id = 0;
 
@@ -291,10 +333,12 @@ bool ZelloProtocol::SendAudio(
 void ZelloProtocol::StopStream() {
     if (!stream_active_ ||
         stream_id_ == 0) {
+
         return;
     }
 
-    cJSON* root = cJSON_CreateObject();
+    cJSON* root =
+        cJSON_CreateObject();
 
     cJSON_AddStringToObject(
         root,
@@ -320,7 +364,8 @@ void ZelloProtocol::StopStream() {
         channel_.c_str()
     );
 
-    char* json = cJSON_PrintUnformatted(root);
+    char* json =
+        cJSON_PrintUnformatted(root);
 
     websocket_->Send(json);
 
@@ -340,6 +385,8 @@ void ZelloProtocol::StopStream() {
 void ZelloProtocol::CloseAudioChannel(
     bool send_goodbye
 ) {
+    (void)send_goodbye;
+
     if (stream_active_) {
         StopStream();
     }
@@ -350,6 +397,12 @@ void ZelloProtocol::CloseAudioChannel(
 
     logged_in_ = false;
     channel_online_ = false;
+
+    stream_active_ = false;
+    stream_start_pending_ = false;
+    stream_id_ = 0;
+
+    incoming_stream_id_ = 0;
 }
 
 bool ZelloProtocol::IsAudioChannelOpened() const {
@@ -363,21 +416,37 @@ void ZelloProtocol::HandleJson(
     size_t len
 ) {
     cJSON* root =
-        cJSON_ParseWithLength(data, len);
+        cJSON_ParseWithLength(
+            data,
+            len
+        );
 
     if (!root) {
-        ESP_LOGE(TAG, "Invalid JSON");
+        ESP_LOGE(
+            TAG,
+            "Invalid JSON"
+        );
+
         return;
     }
 
     cJSON* command =
-        cJSON_GetObjectItem(root, "command");
+        cJSON_GetObjectItem(
+            root,
+            "command"
+        );
 
     cJSON* success =
-        cJSON_GetObjectItem(root, "success");
+        cJSON_GetObjectItem(
+            root,
+            "success"
+        );
 
     cJSON* error =
-        cJSON_GetObjectItem(root, "error");
+        cJSON_GetObjectItem(
+            root,
+            "error"
+        );
 
     /*
      * Logon response.
@@ -392,6 +461,10 @@ void ZelloProtocol::HandleJson(
             TAG,
             "Logged into Zello"
         );
+
+        if (on_connected_) {
+            on_connected_();
+        }
     }
 
     /*
@@ -425,7 +498,191 @@ void ZelloProtocol::HandleJson(
     }
 
     /*
-     * start_stream response.
+     * Incoming Zello stream started.
+     *
+     * Phone -> Zello -> ESP32
+     */
+    if (cJSON_IsString(command) &&
+        strcmp(
+            command->valuestring,
+            "on_stream_start"
+        ) == 0) {
+
+        cJSON* incoming_id =
+            cJSON_GetObjectItem(
+                root,
+                "stream_id"
+            );
+
+        cJSON* type =
+            cJSON_GetObjectItem(
+                root,
+                "type"
+            );
+
+        cJSON* codec =
+            cJSON_GetObjectItem(
+                root,
+                "codec"
+            );
+
+        cJSON* packet_duration =
+            cJSON_GetObjectItem(
+                root,
+                "packet_duration"
+            );
+
+        cJSON* sender =
+            cJSON_GetObjectItem(
+                root,
+                "from"
+            );
+
+        bool valid_audio =
+            cJSON_IsNumber(incoming_id) &&
+            cJSON_IsString(type) &&
+            strcmp(
+                type->valuestring,
+                "audio"
+            ) == 0 &&
+            cJSON_IsString(codec) &&
+            strcmp(
+                codec->valuestring,
+                "opus"
+            ) == 0;
+
+        if (valid_audio) {
+            incoming_stream_id_ =
+                static_cast<uint32_t>(
+                    incoming_id->valuedouble
+                );
+
+            /*
+             * Zello voice streams normally use
+             * 16 kHz Opus for this codec header.
+             */
+            incoming_sample_rate_ =
+                16000;
+
+            if (cJSON_IsNumber(
+                    packet_duration)) {
+
+                incoming_frame_duration_ =
+                    static_cast<int>(
+                        packet_duration->valuedouble
+                    );
+            } else {
+                incoming_frame_duration_ =
+                    60;
+            }
+
+            ESP_LOGI(
+                TAG,
+                "Incoming Zello stream: %lu, %d ms%s%s",
+                (unsigned long)
+                    incoming_stream_id_,
+                incoming_frame_duration_,
+                cJSON_IsString(sender)
+                    ? ", from "
+                    : "",
+                cJSON_IsString(sender)
+                    ? sender->valuestring
+                    : ""
+            );
+
+            /*
+             * Tell the existing application
+             * audio system that speaking/playback
+             * has started.
+             *
+             * The application already understands
+             * the normal Xiaozhi "tts/start" event.
+             */
+            if (on_incoming_json_) {
+                cJSON* event =
+                    cJSON_CreateObject();
+
+                cJSON_AddStringToObject(
+                    event,
+                    "type",
+                    "tts"
+                );
+
+                cJSON_AddStringToObject(
+                    event,
+                    "state",
+                    "start"
+                );
+
+                on_incoming_json_(event);
+
+                cJSON_Delete(event);
+            }
+        }
+    }
+
+    /*
+     * Incoming Zello stream stopped.
+     */
+    if (cJSON_IsString(command) &&
+        strcmp(
+            command->valuestring,
+            "on_stream_stop"
+        ) == 0) {
+
+        cJSON* stopped_id =
+            cJSON_GetObjectItem(
+                root,
+                "stream_id"
+            );
+
+        if (cJSON_IsNumber(stopped_id)) {
+            uint32_t id =
+                static_cast<uint32_t>(
+                    stopped_id->valuedouble
+                );
+
+            if (id ==
+                incoming_stream_id_) {
+
+                ESP_LOGI(
+                    TAG,
+                    "Incoming Zello stream stopped: %lu",
+                    (unsigned long)id
+                );
+
+                incoming_stream_id_ = 0;
+
+                /*
+                 * Tell application playback ended.
+                 */
+                if (on_incoming_json_) {
+                    cJSON* event =
+                        cJSON_CreateObject();
+
+                    cJSON_AddStringToObject(
+                        event,
+                        "type",
+                        "tts"
+                    );
+
+                    cJSON_AddStringToObject(
+                        event,
+                        "state",
+                        "stop"
+                    );
+
+                    on_incoming_json_(event);
+
+                    cJSON_Delete(event);
+                }
+            }
+        }
+    }
+
+    /*
+     * Response to our outgoing
+     * start_stream command.
      */
     cJSON* stream_id =
         cJSON_GetObjectItem(
@@ -439,7 +696,9 @@ void ZelloProtocol::HandleJson(
         cJSON_IsNumber(stream_id)) {
 
         stream_id_ =
-            (uint32_t)stream_id->valuedouble;
+            static_cast<uint32_t>(
+                stream_id->valuedouble
+            );
 
         stream_active_ = true;
         stream_start_pending_ = false;
@@ -458,7 +717,8 @@ void ZelloProtocol::HandleJson(
             error->valuestring
         );
 
-        stream_start_pending_ = false;
+        stream_start_pending_ =
+            false;
     }
 
     cJSON_Delete(root);
@@ -469,7 +729,92 @@ void ZelloProtocol::HandleBinary(
     size_t len
 ) {
     /*
-     * We'll add Zello -> speaker playback
-     * after TX/PTT works.
+     * Incoming Zello audio packet:
+     *
+     * byte 0      = 0x01
+     * bytes 1-4   = stream_id
+     * bytes 5-8   = packet_id
+     * bytes 9...  = Opus payload
      */
+
+    if (data == nullptr ||
+        len <= 9) {
+
+        return;
+    }
+
+    const uint8_t* bytes =
+        reinterpret_cast<
+            const uint8_t*
+        >(data);
+
+    /*
+     * 0x01 = streamed audio.
+     */
+    if (bytes[0] != 0x01) {
+        return;
+    }
+
+    uint32_t network_stream_id = 0;
+    uint32_t network_packet_id = 0;
+
+    memcpy(
+        &network_stream_id,
+        bytes + 1,
+        sizeof(network_stream_id)
+    );
+
+    memcpy(
+        &network_packet_id,
+        bytes + 5,
+        sizeof(network_packet_id)
+    );
+
+    uint32_t stream_id =
+        ntohl(
+            network_stream_id
+        );
+
+    uint32_t packet_id =
+        ntohl(
+            network_packet_id
+        );
+
+    /*
+     * Only accept packets belonging
+     * to the current incoming stream.
+     */
+    if (incoming_stream_id_ == 0 ||
+        stream_id !=
+            incoming_stream_id_) {
+
+        return;
+    }
+
+    if (!on_incoming_audio_) {
+        return;
+    }
+
+    auto packet =
+        std::make_unique<
+            AudioStreamPacket
+        >();
+
+    packet->sample_rate =
+        incoming_sample_rate_;
+
+    packet->frame_duration =
+        incoming_frame_duration_;
+
+    packet->timestamp =
+        packet_id;
+
+    packet->payload.assign(
+        bytes + 9,
+        bytes + len
+    );
+
+    on_incoming_audio_(
+        std::move(packet)
+    );
 }

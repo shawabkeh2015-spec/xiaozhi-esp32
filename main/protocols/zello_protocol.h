@@ -51,6 +51,9 @@ private:
     int sequence_ = 1;
 
     uint32_t stream_id_ = 0;
+    uint32_t incoming_stream_id_ = 0;
+    int incoming_sample_rate_ = 16000;
+    int incoming_frame_duration_ = 60;
 
     bool logged_in_ = false;
     bool channel_online_ = false;
