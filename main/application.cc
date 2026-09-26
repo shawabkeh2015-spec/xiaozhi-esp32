@@ -809,6 +809,22 @@ void Application::StartZelloPtt() {
         }
 
         ESP_LOGI(TAG, "Zello PTT pressed");
+
+        // Set speaker volume to 100%
+        auto codec = Board::GetInstance().GetAudioCodec();
+        codec->SetOutputVolume(100);
+
+        // Short ring before transmitting (~1.5 seconds)
+        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        // Start microphone/transmission after the ring
         StartListening();
 
         if (!zello->StartStream()) {
@@ -816,7 +832,6 @@ void Application::StartZelloPtt() {
         }
     });
 }
-
 void Application::StopZelloPtt() {
     Schedule([this]() {
         auto* zello = static_cast<ZelloProtocol*>(protocol_.get());
@@ -1143,7 +1158,10 @@ void Application::StartListeningAudio() {
     }
 }
 
+void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
+
 void Application::ConfigureWakeWordForListening() {
+
 #ifdef CONFIG_WAKE_WORD_DETECTION_IN_LISTENING
     // Enable wake word detection in listening mode (configured via Kconfig)
     audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
@@ -1411,8 +1429,6 @@ void Application::SetAecMode(AecMode mode) {
         }
     });
 }
-
-void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
 
 void Application::ResetProtocol() {
     Schedule([this]() {
