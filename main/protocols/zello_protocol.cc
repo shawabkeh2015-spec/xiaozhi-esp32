@@ -135,6 +135,13 @@ bool ZelloProtocol::SendText(
     return websocket_->Send(text);
 }
 
+void ZelloProtocol::SendStartListening(ListeningMode mode) {
+    (void)mode;
+}
+
+void ZelloProtocol::SendStopListening() {
+}
+
 bool ZelloProtocol::StartStream() {
     if (!logged_in_ ||
         !channel_online_ ||

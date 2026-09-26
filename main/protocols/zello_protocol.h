@@ -34,6 +34,8 @@ public:
     ) override;
 
     bool IsAudioChannelOpened() const override;
+    void SendStartListening(ListeningMode mode) override;
+    void SendStopListening() override;
 
     bool StartStream();
     void StopStream();
